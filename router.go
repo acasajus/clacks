@@ -61,6 +61,11 @@ func methodArguments(getter func(int) reflect.Type, totalElements int) ([]reflec
 		}
 		exported = append(exported, argType)
 	}
+	if cap(exported) > len(exported) {
+		tmp := make([]reflect.Type, len(exported))
+		copy(tmp, exported)
+		exported = tmp
+	}
 	return exported, nil
 
 }
@@ -115,8 +120,7 @@ func (router *Router) register(rcvr interface{}) error {
 	s.name = sname
 
 	// Install the methods
-	methods, _ := exportedMethods(s.typ)
-	s.methods = methods
+	s.methods, _ = exportedMethods(s.typ)
 
 	if len(s.methods) == 0 {
 		str := ""
