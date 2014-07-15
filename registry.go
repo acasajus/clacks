@@ -33,7 +33,7 @@ type service struct {
 	methods map[string]*methodData // registered methods
 }
 
-type Router struct {
+type Registry struct {
 	svcMap map[string]*service
 	lock   sync.RWMutex
 }
@@ -106,11 +106,11 @@ func exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
 	return methods, nil
 }
 
-func (router *Router) Register(rcvr interface{}) error {
-	router.lock.Lock()
-	defer router.lock.Unlock()
-	if router.svcMap == nil {
-		router.svcMap = make(map[string]*service)
+func (registry *Registry) Register(rcvr interface{}) error {
+	registry.lock.Lock()
+	defer registry.lock.Unlock()
+	if registry.svcMap == nil {
+		registry.svcMap = make(map[string]*service)
 	}
 	s := new(service)
 	s.typ = reflect.TypeOf(rcvr)
@@ -120,7 +120,7 @@ func (router *Router) Register(rcvr interface{}) error {
 		s := "rpc.Register: type " + sname + " is not exported"
 		return errors.New(s)
 	}
-	if _, present := router.svcMap[sname]; present {
+	if _, present := registry.svcMap[sname]; present {
 		return errors.New("rpc: service already defined: " + sname)
 	}
 	s.name = sname
@@ -144,6 +144,6 @@ func (router *Router) Register(rcvr interface{}) error {
 		}
 		return errors.New("Type " + sname + " has no exported methods of suitable type")
 	}
-	router.svcMap[s.name] = s
+	registry.svcMap[s.name] = s
 	return nil
 }

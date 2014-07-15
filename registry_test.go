@@ -100,15 +100,15 @@ func TestExportedMethods(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	router := new(Router)
+	registry := new(Registry)
 	mysp := new(MyService)
 
-	err := router.Register(MyService{})
+	err := registry.Register(MyService{})
 	if err == nil {
 		t.Error("MyService without methods can be registerd (is not pointer)")
 	}
 
-	err = router.Register(mysp)
+	err = registry.Register(mysp)
 	if err != nil {
 		t.Error("Could not register MyService")
 	}
@@ -124,19 +124,19 @@ func TestRegister(t *testing.T) {
 		rcvr:    reflect.ValueOf(mysp),
 		typ:     reflect.TypeOf(mysp),
 		methods: expectedMethods}
-	if !reflect.DeepEqual(router.svcMap, expected) {
+	if !reflect.DeepEqual(registry.svcMap, expected) {
 		t.Error("After registration the map doesn't contain what is expected")
 	}
 
-	err = router.Register(privateStuff{})
+	err = registry.Register(privateStuff{})
 	if err == nil {
 		t.Error("privateStuff can be registered!")
 	}
-	err = router.Register(MyService{})
+	err = registry.Register(MyService{})
 	if err == nil {
 		t.Error("MyService without methods can be registered twice!")
 	}
-	err = router.Register(MyServiceError1{})
+	err = registry.Register(MyServiceError1{})
 	if err == nil {
 		t.Error("MyServiceError1 without methods can be registered")
 	}
