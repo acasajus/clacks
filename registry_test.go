@@ -67,9 +67,12 @@ func checkExportedFails(st interface{}, t *testing.T) {
 func TestMethodArguments(t *testing.T) {
 	objType := reflect.TypeOf(new(MyService))
 	methodType := objType.Method(0).Type
-	methodArgs, err := searchMethodArguments(methodType)
+	methodArgs, numPointers, err := searchMethodArguments(methodType)
 	if err != nil {
 		t.Error(err)
+	}
+	if 1 != numPointers {
+		t.Error("Pointer counter fails to count")
 	}
 	expected := []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 		methodArgument{"string", reflect.TypeOf(""), false},
@@ -89,7 +92,8 @@ func TestExportedMethods(t *testing.T) {
 		method: reflect.TypeOf(new(MyService)).Method(0),
 		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}}}
+			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}},
+		numPointers: 1}
 	if !reflect.DeepEqual(methods, expected) {
 		t.Error("Didn't get any method as exportable")
 	}
@@ -117,9 +121,10 @@ func TestRegister(t *testing.T) {
 		method: reflect.TypeOf(mysp).Method(0),
 		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}}}
-	expected := make(map[string]*service)
-	expected["MyService"] = &service{
+			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}},
+		numPointers: 1}
+	expected := make(map[string]*serviceData)
+	expected["MyService"] = &serviceData{
 		name:    "MyService",
 		rcvr:    reflect.ValueOf(mysp),
 		typ:     reflect.TypeOf(mysp),

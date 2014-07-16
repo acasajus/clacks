@@ -4,10 +4,10 @@ import (
 	"bufio"
 	"encoding/gob"
 	"io"
+	"sync"
 )
 
-type RPCCodec interface {
-	SetRWC(io.ReadWriteCloser)
+type Codec interface {
 	WriteRequest(*Request, interface{}) error
 	WriteResponse(*Response, interface{}) error
 	ReadRequestHeader(*Request) error
@@ -17,10 +17,11 @@ type RPCCodec interface {
 }
 
 type gobCodec struct {
-	rwc    io.ReadWriteCloser
-	dec    *gob.Decoder
-	enc    *gob.Encoder
-	encBuf *bufio.Writer
+	rwc       io.ReadWriteCloser
+	dec       *gob.Decoder
+	enc       *gob.Encoder
+	encBuf    *bufio.Writer
+	writeLock sync.Mutex
 }
 
 func (c *gobCodec) SetRWC(rwc io.ReadWriteCloser) {
@@ -31,6 +32,8 @@ func (c *gobCodec) SetRWC(rwc io.ReadWriteCloser) {
 }
 
 func (c *gobCodec) WriteRequest(r *Request, body interface{}) (err error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
 	if err = c.enc.Encode(r); err != nil {
 		return
 	}
@@ -41,6 +44,8 @@ func (c *gobCodec) WriteRequest(r *Request, body interface{}) (err error) {
 }
 
 func (c *gobCodec) WriteResponse(r *Response, body interface{}) (err error) {
+	c.writeLock.Lock()
+	defer c.writeLock.Unlock()
 	if err = c.enc.Encode(r); err != nil {
 		return
 	}

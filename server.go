@@ -1,26 +1,32 @@
 package clacks
 
 import (
+	"errors"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"reflect"
+	"strings"
 	"sync"
 )
 
 const (
-	connectedMsg = "200 RPC"
+	connectedMsg = "200 HIJACK"
 	RpcPath      = "/RPC"
 )
 
 type Request struct {
-	Seq  uint64
-	next *Request
+	RPCMethod string
+	Seq       uint64
+	next      *Request
 }
 
 type Response struct {
-	Seq  uint64
-	next *Response
+	RPCMethod string
+	Seq       uint64
+	Error     string
+	next      *Response
 }
 
 type Server struct {
@@ -31,6 +37,8 @@ type Server struct {
 	respLock     sync.Mutex // protects freeResp
 	freeResp     *Response
 }
+
+var invalidRequest = []reflect.Value{reflect.ValueOf(struct{}{})}
 
 /*
  Mem caching of Request and Response objects
@@ -79,8 +87,102 @@ func (server *Server) freeResponse(resp *Response) {
 /*
 Process
 */
-func (server *Server) ProcessConnection(conn io.ReadWriteCloser) {
 
+//To use a different codec "overload" this method and execute ProcessCodec with your own Codec
+func (server *Server) ProcessConnection(conn io.ReadWriteCloser) {
+	codec := &gobCodec{}
+	codec.SetRWC(conn)
+	server.ProcessCodec(codec)
+}
+
+func (server *Server) ProcessCodec(codec Codec) {
+	defer codec.Close()
+	for {
+		req, alive, svc, mData, args, err := server.readRequest(codec)
+		if err != nil {
+			log.Println(err)
+			if !alive {
+				break
+			}
+			// send a response if we actually managed to read a header.
+			if req != nil {
+				server.sendResponse(req, codec, invalidRequest, err.Error())
+			}
+			continue
+		}
+		go svc.execute(mData, args, func(rargs []reflect.Value, errMsg string) {
+			server.sendResponse(req, codec, rargs, errMsg)
+		})
+	}
+}
+
+func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Value, errMsg string) {
+	resp := server.getResponse()
+	defer server.freeRequest(req)
+	defer server.freeResponse(resp)
+	resp.RPCMethod = req.RPCMethod
+	resp.Seq = req.Seq
+	resp.Error = errMsg
+	err := codec.WriteResponse(resp, rargs)
+	if err != nil {
+		log.Println("writing response:", err)
+	}
+}
+
+func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcData *serviceData, mData *methodData, args []reflect.Value, err error) {
+	req, alive, svcData, mData, err = server.readRequestHeader(codec)
+	if err != nil {
+		if !alive {
+			codec.ReadBody(nil)
+		}
+		return
+	}
+	args = make([]reflect.Value, len(mData.args))
+	for iPos, methodArg := range mData.args {
+		if methodArg.pointer {
+			args[iPos] = reflect.New(methodArg.typ.Elem())
+		} else {
+			args[iPos] = reflect.New(methodArg.typ)
+		}
+	}
+	codec.ReadBody(&args)
+	for iPos, methodArg := range mData.args {
+		if !methodArg.pointer {
+			args[iPos] = args[iPos].Elem()
+		}
+	}
+	return
+
+}
+
+func (server *Server) readRequestHeader(codec Codec) (req *Request, alive bool, svcData *serviceData, mData *methodData, err error) {
+	req = server.getRequest()
+	err = codec.ReadRequestHeader(req)
+	if err != nil {
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			return
+		}
+		err = errors.New("server cannot decode request: " + err.Error())
+		return
+	}
+	alive = true
+	dot := strings.LastIndex(req.RPCMethod, ".")
+	if dot < 0 {
+		err = errors.New("service/method request ill-formed: " + req.RPCMethod)
+		return
+	}
+	serviceName := req.RPCMethod[:dot]
+	methodName := req.RPCMethod[dot+1:]
+
+	svcData, mData = server.registry.GetServiceMethod(serviceName, methodName)
+	if svcData == nil {
+		err = errors.New("Can't find service " + serviceName)
+		return
+	}
+	if mData == nil {
+		err = errors.New("Can't find method " + methodName + " for service " + serviceName)
+	}
+	return
 }
 
 /*
@@ -99,7 +201,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	io.WriteString(conn, "HTTP/1.0 "+connectedMsg+"\n\n")
-	//server.ServeConn(conn)
+	server.ProcessConnection(conn)
 }
 
 //This method will bind the different HTTP endpoints to their handlers

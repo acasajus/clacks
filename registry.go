@@ -20,13 +20,14 @@ type methodArgument struct {
 }
 
 type methodData struct {
-	sync.Mutex // protects counters
-	method     reflect.Method
-	args       []methodArgument
-	numCalls   uint
+	sync.Mutex  // protects counters
+	method      reflect.Method
+	args        []methodArgument
+	numCalls    uint
+	numPointers uint
 }
 
-type service struct {
+type serviceData struct {
 	name    string                 // name of service
 	rcvr    reflect.Value          // receiver of methods for the service
 	typ     reflect.Type           // type of the receiver
@@ -34,7 +35,7 @@ type service struct {
 }
 
 type Registry struct {
-	svcMap map[string]*service
+	svcMap map[string]*serviceData
 	lock   sync.RWMutex
 }
 
@@ -54,8 +55,9 @@ func isExportedOrBuiltinType(t reflect.Type) bool {
 	return isExported(t.Name()) || t.PkgPath() == ""
 }
 
-func searchMethodArguments(methodType reflect.Type) ([]methodArgument, error) {
+func searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, error) {
 	exported := make([]methodArgument, 0)
+	var numPointers uint
 	//First In is the interfaced stuct itself
 	for i := 1; i < methodType.NumIn(); i++ {
 		argType := methodType.In(i)
@@ -63,10 +65,11 @@ func searchMethodArguments(methodType reflect.Type) ([]methodArgument, error) {
 		if argType.Kind() == reflect.Ptr {
 			argType = argType.Elem()
 			pointer = true
+			numPointers += 1
 		}
 		mArg := methodArgument{pointer: pointer, name: argType.Name(), typ: argType}
 		if !isExportedOrBuiltinType(argType) {
-			return exported, errors.New("argument type not exported:" + argType.String())
+			return exported, 0, errors.New("argument type not exported:" + argType.String())
 		}
 		exported = append(exported, mArg)
 	}
@@ -75,7 +78,7 @@ func searchMethodArguments(methodType reflect.Type) ([]methodArgument, error) {
 		copy(tmp, exported)
 		exported = tmp
 	}
-	return exported, nil
+	return exported, numPointers, nil
 }
 
 // exportedMethods returns suitable Rpc methods of typ, it will report
@@ -83,36 +86,71 @@ func searchMethodArguments(methodType reflect.Type) ([]methodArgument, error) {
 func exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
 	methods := make(map[string]*methodData)
 	for m := 0; m < typ.NumMethod(); m++ {
-		method := typ.Method(m)
-		methodType := method.Type
-		methodName := method.Name
+		methodObj := typ.Method(m)
+		methodType := methodObj.Type
+		methodName := methodObj.Name
 		// Method must be exported.
-		if method.PkgPath != "" || !isExported(methodName) {
+		if methodObj.PkgPath != "" || !isExported(methodName) {
 			continue
 		}
-		methodArgs, err := searchMethodArguments(methodType)
+		methodArgs, numPointers, err := searchMethodArguments(methodType)
 		if err != nil {
 			return methods, errors.New(methodName + " has an invalid argument: " + err.Error())
 		}
 		if methodType.NumOut() != 1 {
 			return methods, errors.New(methodName + " can only return one value and it has to be an error")
 		}
-		// The return type of the method must be error.
+		// The return type of the methodObj must be error.
 		if returnType := methodType.Out(methodType.NumOut() - 1); returnType != typeOfError {
-			return methods, errors.New("method" + methodName + "returns" + returnType.String() + "not error as last return value")
+			return methods, errors.New("methodObj" + methodName + "returns" + returnType.String() + "not error as last return value")
 		}
-		methods[methodName] = &methodData{method: method, args: methodArgs}
+		methods[methodName] = &methodData{method: methodObj, args: methodArgs, numPointers: numPointers}
 	}
 	return methods, nil
+}
+
+func (svc *serviceData) execute(mData *methodData, args []reflect.Value, cb func([]reflect.Value, string)) {
+	//func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
+	mData.Lock()
+	mData.numCalls++
+	mData.Unlock()
+	function := mData.method.Func
+	// Invoke the method, providing a new value for the reply.
+	returnValues := function.Call(args)
+	// The return value for the method is an error.
+	errInter := returnValues[0].Interface()
+	errMsg := ""
+	if errInter != nil {
+		errMsg = errInter.(error).Error()
+	}
+	rargs := make([]reflect.Value, mData.numPointers)
+	for iPos, methodArg := range mData.args {
+		if methodArg.pointer {
+			rargs = append(rargs, args[iPos])
+		}
+	}
+	cb(rargs, errMsg)
+}
+
+func (registry *Registry) GetServiceMethod(serviceName string, methodName string) (service *serviceData, method *methodData) {
+	registry.lock.Lock()
+	defer registry.lock.Unlock()
+
+	var present bool
+	service, present = registry.svcMap[serviceName]
+	if present {
+		method = service.methods[methodName]
+	}
+	return
 }
 
 func (registry *Registry) Register(rcvr interface{}) error {
 	registry.lock.Lock()
 	defer registry.lock.Unlock()
 	if registry.svcMap == nil {
-		registry.svcMap = make(map[string]*service)
+		registry.svcMap = make(map[string]*serviceData)
 	}
-	s := new(service)
+	s := new(serviceData)
 	s.typ = reflect.TypeOf(rcvr)
 	s.rcvr = reflect.ValueOf(rcvr)
 	sname := reflect.Indirect(s.rcvr).Type().Name()
