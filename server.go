@@ -17,16 +17,16 @@ const (
 )
 
 type Request struct {
-	RPCMethod string
-	Seq       uint64
-	next      *Request
+	Method string
+	Seq    uint64
+	next   *Request
 }
 
 type Response struct {
-	RPCMethod string
-	Seq       uint64
-	Error     string
-	next      *Response
+	Method string
+	Seq    uint64
+	Error  string
+	next   *Response
 }
 
 type Server struct {
@@ -120,7 +120,7 @@ func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Va
 	resp := server.getResponse()
 	defer server.freeRequest(req)
 	defer server.freeResponse(resp)
-	resp.RPCMethod = req.RPCMethod
+	resp.Method = req.Method
 	resp.Seq = req.Seq
 	resp.Error = errMsg
 	err := codec.WriteResponse(resp, rargs)
@@ -137,17 +137,19 @@ func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcDat
 		}
 		return
 	}
+	ifaces := make([]interface{}, len(mData.args))
+	codec.ReadBody(ifaces)
 	args = make([]reflect.Value, len(mData.args))
 	for iPos, methodArg := range mData.args {
-		if methodArg.pointer {
+		if methodArg.typ.Kind() == reflect.Ptr {
 			args[iPos] = reflect.New(methodArg.typ.Elem())
 		} else {
 			args[iPos] = reflect.New(methodArg.typ)
 		}
+		args[iPos] = reflect.ValueOf(ifaces[iPos])
 	}
-	codec.ReadBody(&args)
 	for iPos, methodArg := range mData.args {
-		if !methodArg.pointer {
+		if methodArg.typ.Kind() != reflect.Ptr {
 			args[iPos] = args[iPos].Elem()
 		}
 	}
@@ -166,13 +168,13 @@ func (server *Server) readRequestHeader(codec Codec) (req *Request, alive bool, 
 		return
 	}
 	alive = true
-	dot := strings.LastIndex(req.RPCMethod, ".")
+	dot := strings.LastIndex(req.Method, ".")
 	if dot < 0 {
-		err = errors.New("service/method request ill-formed: " + req.RPCMethod)
+		err = errors.New("service/method request ill-formed: " + req.Method)
 		return
 	}
-	serviceName := req.RPCMethod[:dot]
-	methodName := req.RPCMethod[dot+1:]
+	serviceName := req.Method[:dot]
+	methodName := req.Method[dot+1:]
 
 	svcData, mData = server.registry.GetServiceMethod(serviceName, methodName)
 	if svcData == nil {

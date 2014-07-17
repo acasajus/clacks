@@ -14,9 +14,8 @@ import (
 var typeOfError = reflect.TypeOf((*error)(nil)).Elem()
 
 type methodArgument struct {
-	name    string
-	typ     reflect.Type
-	pointer bool
+	name string
+	typ  reflect.Type
 }
 
 type methodData struct {
@@ -35,8 +34,9 @@ type serviceData struct {
 }
 
 type Registry struct {
-	svcMap map[string]*serviceData
-	lock   sync.RWMutex
+	svcMap          map[string]*serviceData
+	registeredTypes map[string]bool
+	lock            sync.RWMutex
 }
 
 // Is this an exported - upper case - name?
@@ -55,21 +55,35 @@ func isExportedOrBuiltinType(t reflect.Type) bool {
 	return isExported(t.Name()) || t.PkgPath() == ""
 }
 
-func searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, error) {
+func (registry *Registry) RegisterType(val interface{}) {
+	new(gobCodec).Register(val)
+}
+
+func (registry *Registry) searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, error) {
 	exported := make([]methodArgument, 0)
 	var numPointers uint
 	//First In is the interfaced stuct itself
 	for i := 1; i < methodType.NumIn(); i++ {
 		argType := methodType.In(i)
-		pointer := false
+		elem := argType
 		if argType.Kind() == reflect.Ptr {
-			argType = argType.Elem()
-			pointer = true
 			numPointers += 1
+			for elem.Kind() == reflect.Ptr {
+				elem = elem.Elem()
+			}
 		}
-		mArg := methodArgument{pointer: pointer, name: argType.Name(), typ: argType}
-		if !isExportedOrBuiltinType(argType) {
-			return exported, 0, errors.New("argument type not exported:" + argType.String())
+		mArg := methodArgument{name: elem.Name(), typ: argType}
+		if elem.PkgPath() != "" {
+			if !isExported(elem.Name()) {
+				return exported, 0, errors.New("argument type not exported:" + argType.String())
+			}
+			if registry.registeredTypes == nil {
+				registry.registeredTypes = make(map[string]bool)
+			}
+			if _, present := registry.registeredTypes[mArg.name]; !present {
+				registry.RegisterType(reflect.New(mArg.typ).Interface())
+				registry.registeredTypes[mArg.name] = true
+			}
 		}
 		exported = append(exported, mArg)
 	}
@@ -83,7 +97,7 @@ func searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, err
 
 // exportedMethods returns suitable Rpc methods of typ, it will report
 // error using log if reportErr is true.
-func exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
+func (registry *Registry) exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
 	methods := make(map[string]*methodData)
 	for m := 0; m < typ.NumMethod(); m++ {
 		methodObj := typ.Method(m)
@@ -93,7 +107,7 @@ func exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
 		if methodObj.PkgPath != "" || !isExported(methodName) {
 			continue
 		}
-		methodArgs, numPointers, err := searchMethodArguments(methodType)
+		methodArgs, numPointers, err := registry.searchMethodArguments(methodType)
 		if err != nil {
 			return methods, errors.New(methodName + " has an invalid argument: " + err.Error())
 		}
@@ -127,7 +141,7 @@ func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, c
 	rPos := 0
 	for iPos, methodArg := range mData.args {
 		//First is rvcr
-		if methodArg.pointer && iPos > 0 {
+		if methodArg.typ.Kind() == reflect.Ptr && iPos > 0 {
 			rargs[rPos] = args[iPos+1]
 			rPos += 1
 		}
@@ -174,7 +188,7 @@ func (registry *Registry) RegisterWithName(rcvr interface{}, sname string) error
 	s.name = sname
 
 	// Install the methods
-	methods, err := exportedMethods(s.typ)
+	methods, err := registry.exportedMethods(s.typ)
 	if err != nil {
 		return errors.New(sname + "Cannot be registered: " + err.Error())
 	}
@@ -183,7 +197,7 @@ func (registry *Registry) RegisterWithName(rcvr interface{}, sname string) error
 	if len(s.methods) == 0 {
 		// To help the user, see if a pointer
 		// receiver would work.
-		methods, err := exportedMethods(reflect.PtrTo(s.typ))
+		methods, err := registry.exportedMethods(reflect.PtrTo(s.typ))
 		switch {
 		case len(methods) != 0:
 			return errors.New("Type " + sname + " has no exported methods of suitable type (hint: pass a pointer to value of that type)")

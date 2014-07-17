@@ -63,42 +63,44 @@ func TestIsExportedOrBuiltinType(t *testing.T) {
 func checkExportedFails(st interface{}, t *testing.T) {
 	objType := reflect.TypeOf(st)
 	methodType := objType.Method(0).Type
-	_, err := exportedMethods(methodType)
+	_, err := new(Registry).exportedMethods(methodType)
 	if err != nil {
 		t.Error("Allows a private object argument to be exported")
 	}
 
 }
 
+func getFunc1MethArgArray() []methodArgument {
+	return []methodArgument{methodArgument{"int", reflect.TypeOf(0)},
+		methodArgument{"string", reflect.TypeOf("")},
+		methodArgument{"TestData", reflect.TypeOf(new(TestData))}}
+}
+
 func TestMethodArguments(t *testing.T) {
 	objType := reflect.TypeOf(new(MyService))
 	methodType := objType.Method(0).Type
-	methodArgs, numPointers, err := searchMethodArguments(methodType)
+	methodArgs, numPointers, err := new(Registry).searchMethodArguments(methodType)
 	if err != nil {
 		t.Error(err)
 	}
 	if 1 != numPointers {
 		t.Error("Pointer counter fails to count")
 	}
-	expected := []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
-		methodArgument{"string", reflect.TypeOf(""), false},
-		methodArgument{"TestData", reflect.TypeOf(TestData{}), true}}
+	expected := getFunc1MethArgArray()
 	if !reflect.DeepEqual(methodArgs, expected) {
 		t.Error("Got method arguments different from expected")
 	}
 }
 
 func TestExportedMethods(t *testing.T) {
-	methods, err := exportedMethods(reflect.TypeOf(new(MyService)))
+	methods, err := new(Registry).exportedMethods(reflect.TypeOf(new(MyService)))
 	if err != nil {
 		t.Error("Valid service does have an error in its methods")
 	}
 	expected := make(map[string]*methodData)
 	expected["Func1"] = &methodData{
-		method: reflect.TypeOf(new(MyService)).Method(0),
-		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
-			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"TestData", reflect.TypeOf(TestData{}), true}},
+		method:      reflect.TypeOf(new(MyService)).Method(0),
+		args:        getFunc1MethArgArray(),
 		numPointers: 1}
 	if !reflect.DeepEqual(methods, expected) {
 		t.Error("Didn't get any method as exportable")
@@ -123,10 +125,8 @@ func TestRegister(t *testing.T) {
 	}
 	expectedMethods := make(map[string]*methodData)
 	expectedMethods["Func1"] = &methodData{
-		method: reflect.TypeOf(mysp).Method(0),
-		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
-			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"TestData", reflect.TypeOf(TestData{}), true}},
+		method:      reflect.TypeOf(mysp).Method(0),
+		args:        getFunc1MethArgArray(),
 		numPointers: 1}
 	expected := make(map[string]*serviceData)
 	expected["MS"] = &serviceData{

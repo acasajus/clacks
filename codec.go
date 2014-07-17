@@ -8,6 +8,7 @@ import (
 )
 
 type Codec interface {
+	Register(interface{})
 	WriteRequest(*Request, interface{}) error
 	WriteResponse(*Response, interface{}) error
 	ReadRequestHeader(*Request) error
@@ -22,6 +23,10 @@ type gobCodec struct {
 	enc       *gob.Encoder
 	encBuf    *bufio.Writer
 	writeLock sync.Mutex
+}
+
+func (c *gobCodec) Register(val interface{}) {
+	gob.Register(val)
 }
 
 func (c *gobCodec) SetRWC(rwc io.ReadWriteCloser) {

@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"net/http/httptest"
+	"reflect"
+	"testing"
 )
 
 //Test helpers
@@ -19,13 +21,13 @@ type Args struct {
 }
 
 type Reply struct {
-	num int
+	Num int
 }
 
 type DummyService struct{}
 
 func (ds *DummyService) Sum(a Args, r *Reply) error {
-	r.num = a.A + a.B
+	r.Num = a.A + a.B
 	return nil
 }
 
@@ -52,3 +54,92 @@ func startNewServer() {
 }
 
 // END HELPERS
+func TestReadRequestHeader(t *testing.T) {
+	server := new(Server)
+	if err := server.Register(new(DummyService)); err != nil {
+		t.Error(err)
+	}
+	codec := new(gobCodec)
+	codec.SetRWC(&RWCMock{})
+	req := &Request{Method: "DummyService.Sum", Seq: 123}
+	if err := codec.WriteRequest(req, struct{}{}); err != nil {
+		t.Error(err)
+	}
+	req2, alive, svcData, mData, err := server.readRequestHeader(codec)
+	if !reflect.DeepEqual(req, req2) {
+		t.Error("Request is not the same")
+	}
+	if !alive {
+		t.Error("It says it's not alive")
+	}
+	if svcData.name != "DummyService" {
+		t.Error("Service is not the same")
+	}
+	if mData.method.Name != "Sum" {
+		t.Error("Method is not the expected one")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+	//Malformed method
+	req.Method = "ASD"
+	if err := codec.WriteRequest(req, struct{}{}); err != nil {
+		t.Error(err)
+	}
+	req2, alive, svcData, mData, err = server.readRequestHeader(codec)
+	if err == nil {
+		t.Error("Should get error for malformed method")
+	}
+	//Invalid service
+	req.Method = "ASD.typeOfErrorASD"
+	if err := codec.WriteRequest(req, struct{}{}); err != nil {
+		t.Error(err)
+	}
+	req2, alive, svcData, mData, err = server.readRequestHeader(codec)
+	if err == nil {
+		t.Error("Should get error for invalid service")
+	}
+	//Invalid service
+	req.Method = "DummyService.OOPS"
+	if err := codec.WriteRequest(req, struct{}{}); err != nil {
+		t.Error(err)
+	}
+	req2, alive, svcData, mData, err = server.readRequestHeader(codec)
+	if err == nil {
+		t.Error("Should get error for invalid method")
+	}
+}
+
+func TestReadRequest(t *testing.T) {
+	server := new(Server)
+	if err := server.Register(new(DummyService)); err != nil {
+		t.Error(err)
+	}
+	codec := new(gobCodec)
+	codec.SetRWC(&RWCMock{})
+	req := &Request{Method: "DummyService.Sum", Seq: 123}
+	args := []interface{}{Args{1, 2}, &Reply{}}
+	if err := codec.WriteRequest(req, args); err != nil {
+		t.Error(err)
+	}
+	req2, alive, svcData, mData, args2, err := server.readRequest(codec)
+	if !reflect.DeepEqual(req, req2) {
+		t.Error("Request is not the same")
+	}
+	if !alive {
+		t.Error("It says it's not alive")
+	}
+	if svcData.name != "DummyService" {
+		t.Error("Service is not the same")
+	}
+	if mData.method.Name != "Sum" {
+		t.Error("Method is not the expected one")
+	}
+	if err != nil {
+		t.Error(err)
+	}
+	if len(args2) != 2 {
+		t.Error("Processed args should be length 2")
+	}
+
+}
