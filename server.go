@@ -110,7 +110,7 @@ func (server *Server) ProcessCodec(codec Codec) {
 			}
 			continue
 		}
-		go svc.execute(mData, args, func(rargs []reflect.Value, errMsg string) {
+		go svc.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
 			server.sendResponse(req, codec, rargs, errMsg)
 		})
 	}

@@ -1,7 +1,9 @@
 package clacks
 
 import (
+	"errors"
 	"reflect"
+	"strconv"
 	"testing"
 )
 
@@ -12,21 +14,25 @@ func (p *privateStuff) privateMethod(j privateStuff) privateStuff {
 }
 
 type MyService struct{}
+type TestData struct {
+	A int
+}
 
-func (m *MyService) Func1(a int, b string, j *MyService) error {
+func (m *MyService) Func1(a int, b string, j *TestData) error {
+	j.A = a
 	return nil
 }
 
-type MyServiceError1 struct{}
+type MyInvalidService struct{}
 
-func (m *MyServiceError1) Func1(a int, b string) int {
+func (m *MyInvalidService) Func1(a int, b string) int {
 	return a
 }
 
-type MyServiceError2 struct{}
+type MyServiceError struct{}
 
-func (m *MyServiceError2) Func1(a privateStuff, b MyServiceError1) error {
-	return nil
+func (m *MyServiceError) FuncError() error {
+	return errors.New("TEST")
 }
 
 /* TEST START */
@@ -76,7 +82,7 @@ func TestMethodArguments(t *testing.T) {
 	}
 	expected := []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 		methodArgument{"string", reflect.TypeOf(""), false},
-		methodArgument{"MyService", reflect.TypeOf(MyService{}), true}}
+		methodArgument{"TestData", reflect.TypeOf(TestData{}), true}}
 	if !reflect.DeepEqual(methodArgs, expected) {
 		t.Error("Got method arguments different from expected")
 	}
@@ -92,15 +98,14 @@ func TestExportedMethods(t *testing.T) {
 		method: reflect.TypeOf(new(MyService)).Method(0),
 		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}},
+			methodArgument{"TestData", reflect.TypeOf(TestData{}), true}},
 		numPointers: 1}
 	if !reflect.DeepEqual(methods, expected) {
 		t.Error("Didn't get any method as exportable")
 	}
 
 	checkExportedFails(new(privateStuff), t)
-	checkExportedFails(new(MyServiceError1), t)
-	checkExportedFails(new(MyServiceError2), t)
+	checkExportedFails(new(MyInvalidService), t)
 }
 
 func TestRegister(t *testing.T) {
@@ -109,23 +114,23 @@ func TestRegister(t *testing.T) {
 
 	err := registry.Register(MyService{})
 	if err == nil {
-		t.Error("MyService without methods can be registerd (is not pointer)")
+		t.Error("MyService without methods can be registerd (is not pointer):" + err.Error())
 	}
 
-	err = registry.Register(mysp)
+	err = registry.RegisterWithName(mysp, "MS")
 	if err != nil {
-		t.Error("Could not register MyService")
+		t.Error("Could not register MyService:" + err.Error())
 	}
 	expectedMethods := make(map[string]*methodData)
 	expectedMethods["Func1"] = &methodData{
 		method: reflect.TypeOf(mysp).Method(0),
 		args: []methodArgument{methodArgument{"int", reflect.TypeOf(0), false},
 			methodArgument{"string", reflect.TypeOf(""), false},
-			methodArgument{"MyService", reflect.TypeOf(MyService{}), true}},
+			methodArgument{"TestData", reflect.TypeOf(TestData{}), true}},
 		numPointers: 1}
 	expected := make(map[string]*serviceData)
-	expected["MyService"] = &serviceData{
-		name:    "MyService",
+	expected["MS"] = &serviceData{
+		name:    "MS",
 		rcvr:    reflect.ValueOf(mysp),
 		typ:     reflect.TypeOf(mysp),
 		methods: expectedMethods}
@@ -141,8 +146,60 @@ func TestRegister(t *testing.T) {
 	if err == nil {
 		t.Error("MyService without methods can be registered twice!")
 	}
-	err = registry.Register(MyServiceError1{})
+	err = registry.Register(MyInvalidService{})
 	if err == nil {
-		t.Error("MyServiceError1 without methods can be registered")
+		t.Error("MyInvalidService without methods can be registered")
 	}
+}
+
+func TestGetServiceMethod(t *testing.T) {
+	registry := new(Registry)
+	if err := registry.Register(new(MyService)); err != nil {
+		t.Error("Could not register MyService:" + err.Error())
+	}
+	svcData, mData := registry.GetServiceMethod("MyService", "Func1")
+	if svcData == nil {
+		t.Error("Didn't get MyService")
+	}
+	if mData == nil {
+		t.Error("Didn't get Func1")
+	}
+}
+
+func TestCall(t *testing.T) {
+	registry := new(Registry)
+	mysp := new(MyService)
+	myerr := new(MyServiceError)
+	if err := registry.Register(mysp); err != nil {
+		t.Error("Could not register MyService:" + err.Error())
+	}
+	if err := registry.Register(myerr); err != nil {
+		t.Error("Could not register MyServiceError:" + err.Error())
+	}
+	td := new(TestData)
+	svcData, mData := registry.GetServiceMethod("MyService", "Func1")
+	args := []reflect.Value{reflect.ValueOf(mysp), reflect.ValueOf(1), reflect.ValueOf("a"), reflect.ValueOf(td)}
+	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
+		if len(rargs) != 1 {
+			t.Error("Returned args is different than 1 (" + strconv.Itoa(len(rargs)) + ")")
+		}
+		if rargs[0].Kind() != reflect.Ptr {
+			t.Error("Returned arg is not a pointer")
+		}
+		td2 := rargs[0].Interface().(*TestData)
+		if td2.A != 1 {
+			t.Error("Value didn't come out as expected")
+		}
+	})
+
+	svcData, mData = registry.GetServiceMethod("MyServiceError", "FuncError")
+	args = []reflect.Value{reflect.ValueOf(myerr)}
+	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
+		if len(rargs) != 0 {
+			t.Error("Returned args is different than 0 (" + strconv.Itoa(len(rargs)) + ")")
+		}
+		if errMsg != "TEST" {
+			t.Error("Received error is different")
+		}
+	})
 }

@@ -109,7 +109,7 @@ func exportedMethods(typ reflect.Type) (map[string]*methodData, error) {
 	return methods, nil
 }
 
-func (svc *serviceData) execute(mData *methodData, args []reflect.Value, cb func([]reflect.Value, string)) {
+func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, cb func([]reflect.Value, string)) {
 	//func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
 	mData.Lock()
 	mData.numCalls++
@@ -124,9 +124,12 @@ func (svc *serviceData) execute(mData *methodData, args []reflect.Value, cb func
 		errMsg = errInter.(error).Error()
 	}
 	rargs := make([]reflect.Value, mData.numPointers)
+	rPos := 0
 	for iPos, methodArg := range mData.args {
-		if methodArg.pointer {
-			rargs = append(rargs, args[iPos])
+		//First is rvcr
+		if methodArg.pointer && iPos > 0 {
+			rargs[rPos] = args[iPos+1]
+			rPos += 1
 		}
 	}
 	cb(rargs, errMsg)
@@ -145,6 +148,13 @@ func (registry *Registry) GetServiceMethod(serviceName string, methodName string
 }
 
 func (registry *Registry) Register(rcvr interface{}) error {
+	rcvrv := reflect.ValueOf(rcvr)
+	indirectType := reflect.Indirect(rcvrv).Type()
+	funcName := indirectType.Name()
+	return registry.RegisterWithName(rcvr, funcName)
+}
+
+func (registry *Registry) RegisterWithName(rcvr interface{}, sname string) error {
 	registry.lock.Lock()
 	defer registry.lock.Unlock()
 	if registry.svcMap == nil {
@@ -153,20 +163,20 @@ func (registry *Registry) Register(rcvr interface{}) error {
 	s := new(serviceData)
 	s.typ = reflect.TypeOf(rcvr)
 	s.rcvr = reflect.ValueOf(rcvr)
-	sname := reflect.Indirect(s.rcvr).Type().Name()
-	if !isExported(sname) {
-		s := "rpc.Register: type " + sname + " is not exported"
-		return errors.New(s)
+	indirectType := reflect.Indirect(s.rcvr).Type()
+	funcName := indirectType.Name()
+	if !isExported(funcName) {
+		return errors.New("Register: type " + funcName + " is not exported")
 	}
 	if _, present := registry.svcMap[sname]; present {
-		return errors.New("rpc: service already defined: " + sname)
+		return errors.New("Service already defined: " + sname)
 	}
 	s.name = sname
 
 	// Install the methods
 	methods, err := exportedMethods(s.typ)
 	if err != nil {
-		return errors.New(sname + "cannot be registered: " + err.Error())
+		return errors.New(sname + "Cannot be registered: " + err.Error())
 	}
 	s.methods = methods
 
