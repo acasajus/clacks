@@ -2,22 +2,43 @@ package clacks
 
 import (
 	"bytes"
+	"io"
 	"reflect"
 	"testing"
 )
-
-type RWCMock struct {
-	bytes.Buffer
-}
 
 type BodyData struct {
 	A int
 	B string
 }
 
+/* START OF MOCK */
+
+type RWCMock struct {
+	data   bytes.Buffer
+	closed bool
+}
+
+func (rwc *RWCMock) Write(data []byte) (n int, err error) {
+	if rwc.closed {
+		return 0, io.ErrUnexpectedEOF
+	}
+	return rwc.data.Write(data)
+}
+
+func (rwc *RWCMock) Read(data []byte) (n int, err error) {
+	if rwc.closed {
+		return 0, io.EOF
+	}
+	return rwc.data.Read(data)
+}
+
 func (rwc *RWCMock) Close() error {
+	rwc.closed = true
 	return nil
 }
+
+/* END OF MOCK */
 
 func TestGobCodec(t *testing.T) {
 	buf := RWCMock{}

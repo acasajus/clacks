@@ -141,5 +141,9 @@ func TestReadRequest(t *testing.T) {
 	if len(args2) != 2 {
 		t.Error("Processed args should be length 2")
 	}
+	expected := []reflect.Value{reflect.ValueOf(args[0]), reflect.ValueOf(args[1])}
+	if !reflect.DeepEqual(expected, args2) {
+		t.Error("Something is not the same")
+	}
 
 }

@@ -16,72 +16,10 @@ const (
 	RpcPath      = "/RPC"
 )
 
-type Request struct {
-	Method string
-	Seq    uint64
-	next   *Request
-}
-
-type Response struct {
-	Method string
-	Seq    uint64
-	Error  string
-	next   *Response
-}
-
 type Server struct {
+	ReCache
 	creationLock sync.Mutex
 	registry     *Registry
-	reqLock      sync.Mutex // protects freeReq
-	freeReq      *Request
-	respLock     sync.Mutex // protects freeResp
-	freeResp     *Response
-}
-
-var invalidRequest = []reflect.Value{reflect.ValueOf(struct{}{})}
-
-/*
- Mem caching of Request and Response objects
-*/
-
-func (server *Server) getRequest() *Request {
-	server.reqLock.Lock()
-	defer server.reqLock.Unlock()
-	req := server.freeReq
-	if req == nil {
-		req = new(Request)
-	} else {
-		server.freeReq = req.next
-		*req = Request{}
-	}
-	return req
-}
-
-func (server *Server) freeRequest(req *Request) {
-	server.reqLock.Lock()
-	defer server.reqLock.Unlock()
-	req.next = server.freeReq
-	server.freeReq = req
-}
-
-func (server *Server) getResponse() *Response {
-	server.respLock.Lock()
-	defer server.respLock.Unlock()
-	resp := server.freeResp
-	if resp == nil {
-		resp = new(Response)
-	} else {
-		server.freeResp = resp.next
-		*resp = Response{}
-	}
-	return resp
-}
-
-func (server *Server) freeResponse(resp *Response) {
-	server.respLock.Lock()
-	defer server.respLock.Unlock()
-	resp.next = server.freeResp
-	server.freeResp = resp
 }
 
 /*
@@ -137,21 +75,22 @@ func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcDat
 		}
 		return
 	}
+	//Fill the interface array with the expected types
 	ifaces := make([]interface{}, len(mData.args))
-	codec.ReadBody(ifaces)
-	args = make([]reflect.Value, len(mData.args))
 	for iPos, methodArg := range mData.args {
 		if methodArg.typ.Kind() == reflect.Ptr {
-			args[iPos] = reflect.New(methodArg.typ.Elem())
+			ifaces[iPos] = reflect.New(methodArg.typ.Elem()).Pointer()
 		} else {
-			args[iPos] = reflect.New(methodArg.typ)
+			ifaces[iPos] = reflect.New(methodArg.typ).Elem().Interface()
 		}
-		args[iPos] = reflect.ValueOf(ifaces[iPos])
 	}
-	for iPos, methodArg := range mData.args {
-		if methodArg.typ.Kind() != reflect.Ptr {
-			args[iPos] = args[iPos].Elem()
-		}
+	err = codec.ReadBody(&ifaces)
+	if err != nil {
+		return
+	}
+	args = make([]reflect.Value, len(mData.args))
+	for iPos, _ := range mData.args {
+		args[iPos] = reflect.ValueOf(ifaces[iPos])
 	}
 	return
 
