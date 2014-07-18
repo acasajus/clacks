@@ -77,23 +77,15 @@ func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcDat
 	}
 	//Fill the interface array with the expected types
 	ifaces := make([]interface{}, len(mData.args))
-	for iPos, methodArg := range mData.args {
-		if methodArg.typ.Kind() == reflect.Ptr {
-			ifaces[iPos] = reflect.New(methodArg.typ.Elem()).Pointer()
-		} else {
-			ifaces[iPos] = reflect.New(methodArg.typ).Elem().Interface()
-		}
-	}
 	err = codec.ReadBody(&ifaces)
 	if err != nil {
 		return
 	}
 	args = make([]reflect.Value, len(mData.args))
 	for iPos, _ := range mData.args {
-		args[iPos] = reflect.ValueOf(ifaces[iPos])
+		args[iPos] = reflect.ValueOf(ifaces[iPos]).Elem()
 	}
 	return
-
 }
 
 func (server *Server) readRequestHeader(codec Codec) (req *Request, alive bool, svcData *serviceData, mData *methodData, err error) {

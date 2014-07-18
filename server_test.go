@@ -118,7 +118,7 @@ func TestReadRequest(t *testing.T) {
 	codec := new(gobCodec)
 	codec.SetRWC(&RWCMock{})
 	req := &Request{Method: "DummyService.Sum", Seq: 123}
-	args := []interface{}{Args{1, 2}, &Reply{}}
+	args := []interface{}{Args{1, 2}, new(Reply)}
 	if err := codec.WriteRequest(req, args); err != nil {
 		t.Error(err)
 	}
@@ -141,8 +141,8 @@ func TestReadRequest(t *testing.T) {
 	if len(args2) != 2 {
 		t.Error("Processed args should be length 2")
 	}
-	expected := []reflect.Value{reflect.ValueOf(args[0]), reflect.ValueOf(args[1])}
-	if !reflect.DeepEqual(expected, args2) {
+	recovered := []interface{}{args2[0].Interface(), args2[1].Interface()}
+	if !reflect.DeepEqual(recovered, args) {
 		t.Error("Something is not the same")
 	}
 
