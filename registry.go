@@ -129,8 +129,13 @@ func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, c
 	mData.numCalls++
 	mData.Unlock()
 	function := mData.method.Func
+	argsRcvr := make([]reflect.Value, len(args)+1)
+	argsRcvr[0] = svc.rcvr
+	for iPos, arg := range args {
+		argsRcvr[iPos+1] = arg
+	}
 	// Invoke the method, providing a new value for the reply.
-	returnValues := function.Call(args)
+	returnValues := function.Call(argsRcvr)
 	// The return value for the method is an error.
 	errInter := returnValues[0].Interface()
 	errMsg := ""
@@ -142,7 +147,7 @@ func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, c
 	for iPos, methodArg := range mData.args {
 		//First is rvcr
 		if methodArg.typ.Kind() == reflect.Ptr && iPos > 0 {
-			rargs[rPos] = args[iPos+1]
+			rargs[rPos] = args[iPos]
 			rPos += 1
 		}
 	}

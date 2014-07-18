@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"testing"
+	"time"
 )
 
 //Test helpers
@@ -118,7 +119,7 @@ func TestReadRequest(t *testing.T) {
 	codec := new(gobCodec)
 	codec.SetRWC(&RWCMock{})
 	req := &Request{Method: "DummyService.Sum", Seq: 123}
-	args := []interface{}{Args{1, 2}, new(Reply)}
+	args := []interface{}{Args{1, 2}, &Reply{1}}
 	if err := codec.WriteRequest(req, args); err != nil {
 		t.Error(err)
 	}
@@ -146,4 +147,61 @@ func TestReadRequest(t *testing.T) {
 		t.Error("Something is not the same")
 	}
 
+}
+
+func TestSendResponse(t *testing.T) {
+	server := new(Server)
+	if err := server.Register(new(DummyService)); err != nil {
+		t.Error(err)
+	}
+	codec := new(gobCodec)
+	codec.SetRWC(&RWCMock{})
+	req := &Request{Method: "DummyService.Sum", Seq: 123}
+	args := []reflect.Value{reflect.ValueOf(&Reply{1})}
+	err := server.sendResponse(req, codec, args, "")
+	if err != nil {
+		t.Error(err)
+	}
+	resp := new(Response)
+	if err = codec.ReadResponseHeader(resp); err != nil {
+		t.Error(err)
+	}
+	if resp.Error != "" {
+		t.Error("Received error is something")
+	}
+	if resp.Method != req.Method || resp.Seq != req.Seq {
+		t.Error("Either method or seq mismatch")
+	}
+	ifaces := make([]interface{}, len(args))
+	err = codec.ReadBody(&ifaces)
+	if err != nil {
+		t.Error(err)
+	}
+	if reflect.DeepEqual([]interface{}{&Reply{1}}, ifaces) {
+		t.Error("Something is not the same")
+	}
+}
+
+func TestProcessOne(t *testing.T) {
+	server := new(Server)
+	if err := server.Register(new(DummyService)); err != nil {
+		t.Error(err)
+	}
+	codec := new(gobCodec)
+	codec.SetRWC(&RWCMock{})
+	req := &Request{Method: "DummyService.Sum", Seq: 123}
+	args := []interface{}{Args{1, 2}, &Reply{1}}
+	if err := codec.WriteRequest(req, args); err != nil {
+		t.Error(err)
+	}
+	alive := server.ProcessOne(codec)
+	if !alive {
+		t.Error("OOps.. it's not alive..")
+	}
+	time.Sleep(100 * time.Millisecond)
+	resp := new(Response)
+	err := codec.ReadResponseHeader(resp)
+	if err != nil {
+		t.Error(err)
+	}
 }

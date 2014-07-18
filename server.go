@@ -35,36 +35,45 @@ func (server *Server) ProcessConnection(conn io.ReadWriteCloser) {
 
 func (server *Server) ProcessCodec(codec Codec) {
 	defer codec.Close()
-	for {
-		req, alive, svc, mData, args, err := server.readRequest(codec)
-		if err != nil {
-			log.Println(err)
-			if !alive {
-				break
-			}
-			// send a response if we actually managed to read a header.
-			if req != nil {
-				server.sendResponse(req, codec, invalidRequest, err.Error())
-			}
-			continue
+	for server.ProcessOne(codec) {
+	}
+}
+
+func (server *Server) ProcessOne(codec Codec) bool {
+	req, alive, svc, mData, args, err := server.readRequest(codec)
+	if err != nil {
+		log.Println("READREQ", err)
+		if !alive {
+			return false
 		}
+		// send a response if we actually managed to read a header.
+		if req != nil {
+			server.sendResponse(req, codec, invalidRequest, err.Error())
+		}
+	} else {
 		go svc.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
 			server.sendResponse(req, codec, rargs, errMsg)
 		})
 	}
+	return true
 }
 
-func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Value, errMsg string) {
+func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Value, errMsg string) (err error) {
 	resp := server.getResponse()
 	defer server.freeRequest(req)
 	defer server.freeResponse(resp)
 	resp.Method = req.Method
 	resp.Seq = req.Seq
 	resp.Error = errMsg
-	err := codec.WriteResponse(resp, rargs)
+	ifaces := make([]interface{}, len(rargs))
+	for iPos, argv := range rargs {
+		ifaces[iPos] = argv.Interface()
+	}
+	err = codec.WriteResponse(resp, ifaces)
 	if err != nil {
 		log.Println("writing response:", err)
 	}
+	return
 }
 
 func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcData *serviceData, mData *methodData, args []reflect.Value, err error) {

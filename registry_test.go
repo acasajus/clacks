@@ -178,7 +178,7 @@ func TestCall(t *testing.T) {
 	}
 	td := new(TestData)
 	svcData, mData := registry.GetServiceMethod("MyService", "Func1")
-	args := []reflect.Value{reflect.ValueOf(mysp), reflect.ValueOf(1), reflect.ValueOf("a"), reflect.ValueOf(td)}
+	args := []reflect.Value{reflect.ValueOf(1), reflect.ValueOf("a"), reflect.ValueOf(td)}
 	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
 		if len(rargs) != 1 {
 			t.Error("Returned args is different than 1 (" + strconv.Itoa(len(rargs)) + ")")
@@ -193,7 +193,7 @@ func TestCall(t *testing.T) {
 	})
 
 	svcData, mData = registry.GetServiceMethod("MyServiceError", "FuncError")
-	args = []reflect.Value{reflect.ValueOf(myerr)}
+	args = []reflect.Value{}
 	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
 		if len(rargs) != 0 {
 			t.Error("Returned args is different than 0 (" + strconv.Itoa(len(rargs)) + ")")
