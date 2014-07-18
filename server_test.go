@@ -205,3 +205,13 @@ func TestProcessOne(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+func TestRPC(t *testing.T) {
+	startNewServer()
+	client, err := Dial("tcp", serverAddr)
+	if err != nil {
+		t.Fatal("dialing", err)
+	}
+	defer client.Close()
+
+}

@@ -42,7 +42,6 @@ func (server *Server) ProcessCodec(codec Codec) {
 func (server *Server) ProcessOne(codec Codec) bool {
 	req, alive, svc, mData, args, err := server.readRequest(codec)
 	if err != nil {
-		log.Println("READREQ", err)
 		if !alive {
 			return false
 		}
