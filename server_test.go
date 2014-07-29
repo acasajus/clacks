@@ -213,5 +213,21 @@ func TestRPC(t *testing.T) {
 		t.Fatal("dialing", err)
 	}
 	defer client.Close()
+	a1 := Args{1, 2}
+	rep := &Reply{100}
+	err = client.Call("DummyService.Sum", a1, rep)
+	if err != nil {
+		t.Fatal("Calling DummyService.Sum: ", err)
+	}
+	if rep.Num != 3 {
+		t.Error("Sum does not match")
+	}
+	err = client.Call("DummyService.Error", a1, rep)
+	if err == nil {
+		t.Fatal("Calling DummyService.Error error result is nil")
+	}
+	if err.Error() != "Test Error" {
+		t.Fatal("Expected \"Test error\" and got " + err.Error())
+	}
 
 }

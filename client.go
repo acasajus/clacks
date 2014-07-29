@@ -7,6 +7,8 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"reflect"
+	"strconv"
 	"sync"
 )
 
@@ -36,9 +38,8 @@ type Client struct {
 type Call struct {
 	Method string        // The name of the service and method to call.
 	Args   []interface{} // The argument to the function (*struct).
-	Reply  []interface{}
-	Error  error      // After completion, the error status.
-	Done   chan *Call // Strobes when call is complete.
+	Error  error         // After completion, the error status.
+	Done   chan *Call    // Strobes when call is complete.
 }
 
 func (call *Call) done() {
@@ -52,6 +53,32 @@ func (call *Call) done() {
 		//	log.Println("rpc: discarding Call reply due to insufficient Done chan capacity")
 		//}
 	}
+}
+
+func (client *Client) readResponseBody(call *Call) error {
+	ifaces := make([]interface{}, 0)
+	err := client.codec.ReadBody(&ifaces)
+	if err != nil {
+		return err
+	}
+	replyPos := 0
+	for _, arg := range call.Args {
+		if reflect.ValueOf(arg).Kind() == reflect.Ptr {
+			if replyPos >= len(ifaces) {
+				return errors.New("Return data did not include all pointer values")
+			}
+			rplVal := reflect.ValueOf(ifaces[replyPos])
+			if rplVal.Kind() != reflect.Ptr || rplVal.Elem().Kind() != reflect.Ptr {
+				return errors.New("Return position " + strconv.Itoa(replyPos) + " is not a **Type")
+			}
+			replyPos++
+			reflect.ValueOf(arg).Elem().Set(rplVal.Elem().Elem())
+		}
+	}
+	if replyPos < len(ifaces) {
+		return errors.New("Return data has more pointer values than expected")
+	}
+	return err
 }
 
 func (client *Client) input() {
@@ -91,7 +118,7 @@ func (client *Client) input() {
 			}
 			call.done()
 		default:
-			err = client.codec.ReadBody(call.Reply)
+			err = client.readResponseBody(call)
 			if err != nil {
 				call.Error = errors.New("reading body " + err.Error())
 			}
@@ -124,7 +151,7 @@ func (client *Client) input() {
 // DialHTTP connects to an HTTP RPC server at the specified network address
 // listening on the default HTTP RPC path.
 func DialHTTP(network, address string) (*Client, error) {
-	return DialHTTPPath(network, address, RpcPath)
+	return DialHTTPPath(network, address, RPCPath)
 }
 
 // DialHTTPPath connects to an HTTP RPC server
@@ -228,7 +255,7 @@ func (client *Client) send(call *Call) {
 // the invocation.  The done channel will signal when the call is complete by returning
 // the same Call object.  If done is nil, Go will allocate a new channel.
 // If non-nil, done must be buffered or Go will deliberately crash.
-func (client *Client) Go(serviceMethod string, done chan *Call, args ...interface{}) *Call {
+func (client *Client) Go(done chan *Call, serviceMethod string, args ...interface{}) *Call {
 	call := new(Call)
 	call.Method = serviceMethod
 	call.Args = args
@@ -250,6 +277,6 @@ func (client *Client) Go(serviceMethod string, done chan *Call, args ...interfac
 
 // Call invokes the named function, waits for it to complete, and returns its error status.
 func (client *Client) Call(serviceMethod string, args ...interface{}) error {
-	call := <-client.Go(serviceMethod, make(chan *Call, 1), args...).Done
+	call := <-client.Go(make(chan *Call, 1), serviceMethod, args...).Done
 	return call.Error
 }

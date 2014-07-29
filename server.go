@@ -13,7 +13,7 @@ import (
 
 const (
 	connectedMsg = "200 HIJACK"
-	RpcPath      = "/RPC"
+	RPCPath      = "/RPC"
 )
 
 type Server struct {
@@ -147,7 +147,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 //This method will bind the different HTTP endpoints to their handlers
 func (server *Server) HandleHTTP() {
-	http.Handle(RpcPath, server)
+	http.Handle(RPCPath, server)
 }
 
 func (server *Server) Register(endpoint interface{}) error {
