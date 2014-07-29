@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"reflect"
+	"strconv"
 	"sync"
 	"unicode"
 	"unicode/utf8"
@@ -132,6 +133,11 @@ func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, c
 	argsRcvr := make([]reflect.Value, len(args)+1)
 	argsRcvr[0] = svc.rcvr
 	for iPos, arg := range args {
+		rtyp, etyp := arg.Type(), mData.args[iPos].typ
+		if !reflect.DeepEqual(rtyp, etyp) {
+			cb(nil, "Argument "+strconv.Itoa(iPos)+" if of type "+rtyp.String()+" and the expected type is "+etyp.String())
+			return
+		}
 		argsRcvr[iPos+1] = arg
 	}
 	// Invoke the method, providing a new value for the reply.

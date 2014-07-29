@@ -1,9 +1,6 @@
 package clacks
 
-import (
-	"reflect"
-	"sync"
-)
+import "sync"
 
 type Request struct {
 	Method string
@@ -24,8 +21,6 @@ type ReCache struct {
 	respLock sync.Mutex // protects freeResp
 	freeResp *Response
 }
-
-var invalidRequest = []reflect.Value{reflect.ValueOf(struct{}{})}
 
 /*
  Mem caching of Request and Response objects

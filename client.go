@@ -103,19 +103,17 @@ func (client *Client) input() {
 			// removed; response is a server telling us about an
 			// error reading request body. We should still attempt
 			// to read error body, but there's no one to give it to.
-			err = client.codec.ReadBody(nil)
-			if err != nil {
-				err = errors.New("reading error body: " + err.Error())
+			if response.Error != "" {
+				err = client.codec.ReadBody(nil)
+				if err != nil {
+					err = errors.New("reading error body: " + err.Error())
+				}
 			}
 		case response.Error != "":
 			// We've got an error response. Give this to the request;
 			// any subsequent requests will get the ReadResponseBody
 			// error if there is one.
 			call.Error = ServerError(response.Error)
-			err = client.codec.ReadBody(nil)
-			if err != nil {
-				err = errors.New("reading error body: " + err.Error())
-			}
 			call.done()
 		default:
 			err = client.readResponseBody(call)

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -47,28 +48,32 @@ func (server *Server) ProcessOne(codec Codec) bool {
 		}
 		// send a response if we actually managed to read a header.
 		if req != nil {
-			server.sendResponse(req, codec, invalidRequest, err.Error())
+			server.sendResponse(req, codec, err.Error(), nil)
 		}
 	} else {
 		go svc.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
-			server.sendResponse(req, codec, rargs, errMsg)
+			server.sendResponse(req, codec, errMsg, rargs)
 		})
 	}
 	return true
 }
 
-func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Value, errMsg string) (err error) {
+func (server *Server) sendResponse(req *Request, codec Codec, errMsg string, rargs []reflect.Value) (err error) {
 	resp := server.getResponse()
 	defer server.freeRequest(req)
 	defer server.freeResponse(resp)
 	resp.Method = req.Method
 	resp.Seq = req.Seq
 	resp.Error = errMsg
-	ifaces := make([]interface{}, len(rargs))
-	for iPos, argv := range rargs {
-		ifaces[iPos] = argv.Interface()
+	if len(resp.Error) > 0 {
+		err = codec.WriteResponse(resp, nil)
+	} else {
+		ifaces := make([]interface{}, len(rargs))
+		for iPos, argv := range rargs {
+			ifaces[iPos] = argv.Interface()
+		}
+		err = codec.WriteResponse(resp, ifaces)
 	}
-	err = codec.WriteResponse(resp, ifaces)
 	if err != nil {
 		log.Println("writing response:", err)
 	}
@@ -78,18 +83,24 @@ func (server *Server) sendResponse(req *Request, codec Codec, rargs []reflect.Va
 func (server *Server) readRequest(codec Codec) (req *Request, alive bool, svcData *serviceData, mData *methodData, args []reflect.Value, err error) {
 	req, alive, svcData, mData, err = server.readRequestHeader(codec)
 	if err != nil {
-		if !alive {
+		if alive {
 			codec.ReadBody(nil)
 		}
+		log.Println("Error processing read request header: ", err)
 		return
 	}
 	//Fill the interface array with the expected types
-	ifaces := make([]interface{}, len(mData.args))
+	ifaces := make([]interface{}, 0)
 	err = codec.ReadBody(&ifaces)
 	if err != nil {
 		return
 	}
-	args = make([]reflect.Value, len(mData.args))
+	numArgs := len(mData.args)
+	if len(ifaces) != numArgs {
+		err = errors.New("Mismatch in the number of arguments! Expected " + strconv.Itoa(numArgs))
+		return
+	}
+	args = make([]reflect.Value, numArgs)
 	for iPos, _ := range mData.args {
 		args[iPos] = reflect.ValueOf(ifaces[iPos]).Elem()
 	}

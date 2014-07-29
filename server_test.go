@@ -158,7 +158,7 @@ func TestSendResponse(t *testing.T) {
 	codec.SetRWC(&RWCMock{})
 	req := &Request{Method: "DummyService.Sum", Seq: 123}
 	args := []reflect.Value{reflect.ValueOf(&Reply{1})}
-	err := server.sendResponse(req, codec, args, "")
+	err := server.sendResponse(req, codec, "", args)
 	if err != nil {
 		t.Error(err)
 	}
@@ -229,5 +229,37 @@ func TestRPC(t *testing.T) {
 	if err.Error() != "Test Error" {
 		t.Fatal("Expected \"Test error\" and got " + err.Error())
 	}
+	//Different number of args
+	err = client.Call("DummyService.Error", a1)
+	if err == nil {
+		t.Fatal("Calling DummyService.Error error result is nil")
+	}
+	if err.Error() != "Mismatch in the number of arguments! Expected 2" {
+		t.Fatal("Expected \"Mismatch in the number of arguments! Expected 2\" and got " + err.Error())
+	}
+	//Different type of args
+	err = client.Call("DummyService.Error", a1, a1)
+	if err == nil {
+		t.Fatal("Calling DummyService.Error error result is nil")
+	}
+	if err.Error() != "Argument 1 if of type clacks.Args and the expected type is *clacks.Reply" {
+		t.Fatal("Expected \"Argument 1 if of type clacks.Args and the expected type is *clacks.Reply\" and got " + err.Error())
+	}
 
+	//Non existant func
+	err = client.Call("DummyService.OOps", a1)
+	if err == nil {
+		t.Fatal("Calling DummyService.Oops error result is nil")
+	}
+	if err.Error() != "Can't find method OOps for service DummyService" {
+		t.Fatal("Different expected error. Got", err)
+	}
+	//NOn existant svc
+	err = client.Call("Nops.OOps", a1)
+	if err == nil {
+		t.Fatal("Calling DummyService.Oops error result is nil")
+	}
+	if err.Error() != "Can't find service Nops" {
+		t.Fatal("Different expected error. Got", err)
+	}
 }

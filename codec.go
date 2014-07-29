@@ -42,8 +42,10 @@ func (c *gobCodec) WriteRequest(r *Request, body interface{}) (err error) {
 	if err = c.enc.Encode(r); err != nil {
 		return
 	}
-	if err = c.enc.Encode(body); err != nil {
-		return
+	if body != nil {
+		if err = c.enc.Encode(body); err != nil {
+			return
+		}
 	}
 	return c.encBuf.Flush()
 }
@@ -54,8 +56,10 @@ func (c *gobCodec) WriteResponse(r *Response, body interface{}) (err error) {
 	if err = c.enc.Encode(r); err != nil {
 		return
 	}
-	if err = c.enc.Encode(body); err != nil {
-		return
+	if body != nil {
+		if err = c.enc.Encode(body); err != nil {
+			return
+		}
 	}
 	return c.encBuf.Flush()
 }
