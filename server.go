@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"code.google.com/p/go.net/context"
 )
 
 const (
@@ -28,19 +30,19 @@ Process
 */
 
 //To use a different codec "overload" this method and execute ProcessCodec with your own Codec
-func (server *Server) ProcessConnection(conn io.ReadWriteCloser) {
+func (server *Server) ProcessConnection(ctx context.Context, conn io.ReadWriteCloser) {
 	codec := &gobCodec{}
 	codec.SetRWC(conn)
-	server.ProcessCodec(codec)
+	server.ProcessCodec(ctx, codec)
 }
 
-func (server *Server) ProcessCodec(codec Codec) {
+func (server *Server) ProcessCodec(ctx context.Context, codec Codec) {
 	defer codec.Close()
-	for server.ProcessOne(codec) {
+	for server.ProcessOne(ctx, codec) {
 	}
 }
 
-func (server *Server) ProcessOne(codec Codec) bool {
+func (server *Server) ProcessOne(ctx context.Context, codec Codec) bool {
 	req, alive, svc, mData, args, err := server.readRequest(codec)
 	if err != nil {
 		if !alive {
@@ -51,7 +53,7 @@ func (server *Server) ProcessOne(codec Codec) bool {
 			server.sendResponse(req, codec, err.Error(), nil)
 		}
 	} else {
-		go svc.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
+		go svc.executeMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
 			server.sendResponse(req, codec, errMsg, rargs)
 		})
 	}
@@ -153,7 +155,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	io.WriteString(conn, "HTTP/1.0 "+connectedMsg+"\n\n")
-	server.ProcessConnection(conn)
+	server.ProcessConnection(context.Background(), conn)
 }
 
 //This method will bind the different HTTP endpoints to their handlers
@@ -179,7 +181,7 @@ func (server *Server) Accept(lis net.Listener) {
 		if err != nil {
 			log.Fatal("rpc.Serve: accept:", err.Error()) // TODO(r): exit?
 		}
-		go server.ProcessConnection(conn)
+		go server.ProcessConnection(context.Background(), conn)
 	}
 }
 

@@ -3,6 +3,8 @@ package clacks
 import (
 	"errors"
 
+	"code.google.com/p/go.net/context"
+
 	"reflect"
 	"strconv"
 	"sync"
@@ -60,11 +62,22 @@ func (registry *Registry) RegisterType(val interface{}) {
 	new(gobCodec).Register(val)
 }
 
+var contextType = reflect.TypeOf(context.Background())
+
 func (registry *Registry) searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, error) {
 	exported := make([]methodArgument, 0)
 	var numPointers uint
 	//First In is the interfaced stuct itself
-	for i := 1; i < methodType.NumIn(); i++ {
+	//Second must be a context.Context argument
+	if methodType.NumIn() < 2 {
+		return exported, 0, errors.New("At leaset a context.Context argument is required")
+	}
+	argType := methodType.In(1)
+	if !contextType.AssignableTo(argType) {
+		return exported, 0, errors.New("First argument must be of type context.Context")
+	}
+	//Check the rest of args
+	for i := 2; i < methodType.NumIn(); i++ {
 		argType := methodType.In(i)
 		elem := argType
 		if argType.Kind() == reflect.Ptr {
@@ -124,21 +137,23 @@ func (registry *Registry) exportedMethods(typ reflect.Type) (map[string]*methodD
 	return methods, nil
 }
 
-func (svc *serviceData) executeMethod(mData *methodData, args []reflect.Value, cb func([]reflect.Value, string)) {
+func (svc *serviceData) executeMethod(mData *methodData, ctx context.Context, args []reflect.Value, cb func([]reflect.Value, string)) {
 	//func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
 	mData.Lock()
 	mData.numCalls++
 	mData.Unlock()
 	function := mData.method.Func
-	argsRcvr := make([]reflect.Value, len(args)+1)
+	argsRcvr := make([]reflect.Value, len(args)+2)
 	argsRcvr[0] = svc.rcvr
+	argsRcvr[1] = reflect.ValueOf(ctx)
 	for iPos, arg := range args {
 		rtyp, etyp := arg.Type(), mData.args[iPos].typ
 		if !reflect.DeepEqual(rtyp, etyp) {
 			cb(nil, "Argument "+strconv.Itoa(iPos)+" if of type "+rtyp.String()+" and the expected type is "+etyp.String())
 			return
 		}
-		argsRcvr[iPos+1] = arg
+		//0 is rvcr and 1 is the context
+		argsRcvr[iPos+2] = arg
 	}
 	// Invoke the method, providing a new value for the reply.
 	returnValues := function.Call(argsRcvr)

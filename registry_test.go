@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+
+	"code.google.com/p/go.net/context"
 )
 
 type privateStuff struct{}
@@ -18,20 +20,32 @@ type TestData struct {
 	A int
 }
 
-func (m *MyService) Func1(a int, b string, j *TestData) error {
+func (m *MyService) Func1(ctx context.Context, a int, b string, j *TestData) error {
 	j.A = a
 	return nil
 }
 
-type MyInvalidService struct{}
+type MyInvalidService1 struct{}
 
-func (m *MyInvalidService) Func1(a int, b string) int {
+func (m *MyInvalidService1) Func1(a int, b string) int {
+	return a
+}
+
+type MyInvalidService2 struct{}
+
+func (m *MyInvalidService2) Func1() int {
+	return 1
+}
+
+type MyInvalidService3 struct{}
+
+func (m *MyInvalidService3) Func1(ctx context.Context, a int, b string) int {
 	return a
 }
 
 type MyServiceError struct{}
 
-func (m *MyServiceError) FuncError() error {
+func (m *MyServiceError) FuncError(ctx context.Context) error {
 	return errors.New("TEST")
 }
 
@@ -107,7 +121,9 @@ func TestExportedMethods(t *testing.T) {
 	}
 
 	checkExportedFails(new(privateStuff), t)
-	checkExportedFails(new(MyInvalidService), t)
+	checkExportedFails(new(MyInvalidService1), t)
+	checkExportedFails(new(MyInvalidService2), t)
+	checkExportedFails(new(MyInvalidService3), t)
 }
 
 func TestRegister(t *testing.T) {
@@ -146,9 +162,9 @@ func TestRegister(t *testing.T) {
 	if err == nil {
 		t.Error("MyService without methods can be registered twice!")
 	}
-	err = registry.Register(MyInvalidService{})
+	err = registry.Register(MyInvalidService1{})
 	if err == nil {
-		t.Error("MyInvalidService without methods can be registered")
+		t.Error("MyInvalidService1 without methods can be registered")
 	}
 }
 
@@ -179,7 +195,8 @@ func TestCall(t *testing.T) {
 	td := new(TestData)
 	svcData, mData := registry.GetServiceMethod("MyService", "Func1")
 	args := []reflect.Value{reflect.ValueOf(1), reflect.ValueOf("a"), reflect.ValueOf(td)}
-	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
+	ctx := context.Background()
+	svcData.executeMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
 		if len(rargs) != 1 {
 			t.Error("Returned args is different than 1 (" + strconv.Itoa(len(rargs)) + ")")
 		}
@@ -194,7 +211,7 @@ func TestCall(t *testing.T) {
 
 	svcData, mData = registry.GetServiceMethod("MyServiceError", "FuncError")
 	args = []reflect.Value{}
-	svcData.executeMethod(mData, args, func(rargs []reflect.Value, errMsg string) {
+	svcData.executeMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
 		if len(rargs) != 0 {
 			t.Error("Returned args is different than 0 (" + strconv.Itoa(len(rargs)) + ")")
 		}
