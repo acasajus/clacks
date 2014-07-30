@@ -196,7 +196,7 @@ func TestProcessOne(t *testing.T) {
 	if err := codec.WriteRequest(req, args); err != nil {
 		t.Error(err)
 	}
-	alive := server.ProcessOne(context.Background(), codec)
+	alive := server.processOne(context.Background(), codec)
 	if !alive {
 		t.Error("OOps.. it's not alive..")
 	}

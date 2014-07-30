@@ -19,30 +19,52 @@ const (
 	RPCPath      = "/RPC"
 )
 
+type codecFunc func(io.ReadWriteCloser) Codec
+type contextFunc func(context.Context, net.Conn) context.Context
+
 type Server struct {
 	ReCache
 	creationLock sync.Mutex
 	registry     *Registry
+	codecCB      codecFunc
+	contextCB    contextFunc
+}
+
+/* Generate codec */
+
+func GenerateCodec(conn io.ReadWriteCloser) Codec {
+	codec := &gobCodec{}
+	codec.SetRWC(conn)
+	return codec
+}
+
+/* Methods to set callbacks by user */
+
+func (server *Server) CodecFunc(c codecFunc) {
+	server.codecCB = c
+}
+
+func (server *Server) ContextFunc(c contextFunc) {
+	server.contextCB = c
 }
 
 /*
 Process
 */
 
-//To use a different codec "overload" this method and execute ProcessCodec with your own Codec
-func (server *Server) ProcessConnection(ctx context.Context, conn io.ReadWriteCloser) {
-	codec := &gobCodec{}
-	codec.SetRWC(conn)
-	server.ProcessCodec(ctx, codec)
-}
-
-func (server *Server) ProcessCodec(ctx context.Context, codec Codec) {
+func (server *Server) ProcessConnection(conn net.Conn) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if server.contextCB != nil {
+		ctx = server.contextCB(ctx, conn)
+	}
+	codec := server.codecCB(conn)
 	defer codec.Close()
-	for server.ProcessOne(ctx, codec) {
+	for server.processOne(ctx, codec) {
 	}
 }
 
-func (server *Server) ProcessOne(ctx context.Context, codec Codec) bool {
+func (server *Server) processOne(ctx context.Context, codec Codec) bool {
 	req, alive, svc, mData, args, err := server.readRequest(codec)
 	if err != nil {
 		if !alive {
@@ -155,7 +177,7 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	io.WriteString(conn, "HTTP/1.0 "+connectedMsg+"\n\n")
-	server.ProcessConnection(context.Background(), conn)
+	server.ProcessConnection(conn)
 }
 
 //This method will bind the different HTTP endpoints to their handlers
@@ -181,7 +203,7 @@ func (server *Server) Accept(lis net.Listener) {
 		if err != nil {
 			log.Fatal("rpc.Serve: accept:", err.Error()) // TODO(r): exit?
 		}
-		go server.ProcessConnection(context.Background(), conn)
+		go server.ProcessConnection(conn)
 	}
 }
 
@@ -199,5 +221,5 @@ func (server *Server) ListenAndServeTLS(addr string, certFile string, keyFile st
 }
 
 func NewServer() *Server {
-	return new(Server)
+	return &Server{codecCB: GenerateCodec}
 }
