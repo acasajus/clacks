@@ -171,8 +171,8 @@ func TestSendResponse(t *testing.T) {
 	if resp.Error != "" {
 		t.Error("Received error is something")
 	}
-	if resp.Method != req.Method || resp.Seq != req.Seq {
-		t.Error("Either method or seq mismatch")
+	if resp.Seq != req.Seq {
+		t.Error("Either seq mismatch")
 	}
 	ifaces := make([]interface{}, len(args))
 	err = codec.ReadBody(&ifaces)

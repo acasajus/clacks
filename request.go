@@ -2,17 +2,24 @@ package clacks
 
 import "sync"
 
+const (
+	R_RPC  = iota //Normal RPC request
+	R_PUSH        //Push async data to client
+	R_DATA        //Send data to client
+)
+
 type Request struct {
+	Type   uint8
 	Method string
 	Seq    uint64
 	next   *Request
 }
 
 type Response struct {
-	Method string
-	Seq    uint64
-	Error  string
-	next   *Response
+	Type  uint8
+	Seq   uint64
+	Error string
+	next  *Response
 }
 
 type ReCache struct {

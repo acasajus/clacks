@@ -75,7 +75,7 @@ func (server *Server) processOne(ctx context.Context, codec Codec) bool {
 			server.sendResponse(req, codec, err.Error(), nil)
 		}
 	} else {
-		go svc.executeMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
+		go svc.ExecuteMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
 			server.sendResponse(req, codec, errMsg, rargs)
 		})
 	}
@@ -86,7 +86,6 @@ func (server *Server) sendResponse(req *Request, codec Codec, errMsg string, rar
 	resp := server.getResponse()
 	defer server.freeRequest(req)
 	defer server.freeResponse(resp)
-	resp.Method = req.Method
 	resp.Seq = req.Seq
 	resp.Error = errMsg
 	if len(resp.Error) > 0 {
