@@ -86,6 +86,7 @@ func (server *Server) sendResponse(req *Request, codec Codec, errMsg string, rar
 	resp := server.getResponse()
 	defer server.freeRequest(req)
 	defer server.freeResponse(resp)
+	resp.Type = R_RPC
 	resp.Seq = req.Seq
 	resp.Error = errMsg
 	if len(resp.Error) > 0 {

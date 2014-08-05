@@ -101,13 +101,9 @@ func (client *Client) input() {
 			// We've got no pending call. That usually means that
 			// WriteRequest partially failed, and call was already
 			// removed; response is a server telling us about an
-			// error reading request body. We should still attempt
-			// to read error body, but there's no one to give it to.
+			// error reading request body
 			if response.Error != "" {
-				err = client.codec.ReadBody(nil)
-				if err != nil {
-					err = errors.New("reading error body: " + err.Error())
-				}
+				err = errors.New(response.Error)
 			}
 		case response.Error != "":
 			// We've got an error response. Give this to the request;
@@ -145,6 +141,53 @@ func (client *Client) input() {
 	//	log.Println("rpc: client protocol error:", err)
 	//}
 }
+
+func (client *Client) Close() error {
+	client.mutex.Lock()
+	if client.closing {
+		client.mutex.Unlock()
+		return ErrShutdown
+	}
+	client.closing = true
+	client.mutex.Unlock()
+	return client.codec.Close()
+}
+
+func (client *Client) SubscribeToPush(cb interface{}) {
+
+}
+
+// Go invokes the function asynchronously.  It returns the Call structure representing
+// the invocation.  The done channel will signal when the call is complete by returning
+// the same Call object.  If done is nil, Go will allocate a new channel.
+// If non-nil, done must be buffered or Go will deliberately crash.
+func (client *Client) Go(done chan *Call, serviceMethod string, args ...interface{}) *Call {
+	call := new(Call)
+	call.Method = serviceMethod
+	call.Args = args
+	if done == nil {
+		done = make(chan *Call, 10) // buffered.
+	} else {
+		// If caller passes done != nil, it must arrange that
+		// done has enough buffer for the number of simultaneous
+		// RPCs that will be using that channel.  If the channel
+		// is totally unbuffered, it's best not to run at all.
+		if cap(done) == 0 {
+			log.Panic("done channel is unbuffered")
+		}
+	}
+	call.Done = done
+	client.send(call)
+	return call
+}
+
+// Call invokes the named function, waits for it to complete, and returns its error status.
+func (client *Client) Call(serviceMethod string, args ...interface{}) error {
+	call := <-client.Go(make(chan *Call, 1), serviceMethod, args...).Done
+	return call.Error
+}
+
+/* Dial methods */
 
 // DialHTTP connects to an HTTP RPC server at the specified network address
 // listening on the default HTTP RPC path.
@@ -188,16 +231,7 @@ func Dial(network string, address string) (*Client, error) {
 	return NewClient(conn), nil
 }
 
-func (client *Client) Close() error {
-	client.mutex.Lock()
-	if client.closing {
-		client.mutex.Unlock()
-		return ErrShutdown
-	}
-	client.closing = true
-	client.mutex.Unlock()
-	return client.codec.Close()
-}
+/* New client methods */
 
 // It adds a buffer to the write side of the connection so
 // the header and payload are sent as a unit.
@@ -247,34 +281,4 @@ func (client *Client) send(call *Call) {
 			call.done()
 		}
 	}
-}
-
-// Go invokes the function asynchronously.  It returns the Call structure representing
-// the invocation.  The done channel will signal when the call is complete by returning
-// the same Call object.  If done is nil, Go will allocate a new channel.
-// If non-nil, done must be buffered or Go will deliberately crash.
-func (client *Client) Go(done chan *Call, serviceMethod string, args ...interface{}) *Call {
-	call := new(Call)
-	call.Method = serviceMethod
-	call.Args = args
-	if done == nil {
-		done = make(chan *Call, 10) // buffered.
-	} else {
-		// If caller passes done != nil, it must arrange that
-		// done has enough buffer for the number of simultaneous
-		// RPCs that will be using that channel.  If the channel
-		// is totally unbuffered, it's best not to run at all.
-		if cap(done) == 0 {
-			log.Panic("done channel is unbuffered")
-		}
-	}
-	call.Done = done
-	client.send(call)
-	return call
-}
-
-// Call invokes the named function, waits for it to complete, and returns its error status.
-func (client *Client) Call(serviceMethod string, args ...interface{}) error {
-	call := <-client.Go(make(chan *Call, 1), serviceMethod, args...).Done
-	return call.Error
 }

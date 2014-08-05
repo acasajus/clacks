@@ -2,7 +2,6 @@ package clacks
 
 import (
 	"errors"
-	"fmt"
 
 	"code.google.com/p/go.net/context"
 
@@ -37,19 +36,8 @@ type serviceData struct {
 	methods map[string]*methodData // registered methods
 }
 
-type pushSubscriber struct {
-	method reflect.Value
-	mid    uint64
-}
-
-type PushSubscriberID struct {
-	argName string
-	mid     uint64
-}
-
 type Registry struct {
 	svcMap          map[string]*serviceData
-	pushMap         map[string][]*pushSubscriber
 	registeredTypes map[string]bool
 	midCounter      uint64
 	lock            sync.RWMutex
@@ -247,91 +235,4 @@ func (registry *Registry) RegisterWithName(rcvr interface{}, sname string) error
 	}
 	registry.svcMap[s.name] = s
 	return nil
-}
-
-type subsCB func(interface{})
-
-//Subscribe to pushed messages from the server
-func (registry *Registry) SubscribeToPush(cb interface{}) (PushSubscriberID, error) {
-	registry.lock.Lock()
-	defer registry.lock.Unlock()
-	sid := PushSubscriberID{}
-	mval := reflect.ValueOf(cb)
-	mtype := mval.Type()
-	if mtype.Kind() != reflect.Func {
-		return sid, errors.New(fmt.Sprintf("%v is not a function", cb))
-	}
-	if mtype.NumIn() != 1 {
-		return sid, errors.New(fmt.Sprintf("%v can only have one argument", cb))
-	}
-	arg := mtype.In(0)
-	if arg.Kind() == reflect.Ptr {
-		return sid, errors.New(fmt.Sprintf("%v cannot receive a pointer"))
-	}
-	if registry.pushMap == nil {
-		registry.pushMap = make(map[string][]*pushSubscriber)
-	}
-	argName := arg.String()
-	ps := new(pushSubscriber)
-	ps.method = mval
-	ps.mid = registry.midCounter
-	registry.midCounter++
-	sid.mid = ps.mid
-	sid.argName = argName
-	var subs []*pushSubscriber
-	var ok bool
-	if subs, ok = registry.pushMap[argName]; !ok {
-		subs = make([]*pushSubscriber, 0, 1)
-	}
-	registry.pushMap[argName] = append(subs, ps)
-	return sid, nil
-}
-
-//Unsubscribe to pushed messages from the server
-func (registry *Registry) UnsubscribeFromPush(sid PushSubscriberID) {
-	registry.lock.Lock()
-	defer registry.lock.Unlock()
-	var subs []*pushSubscriber
-	var ok bool
-	if subs, ok = registry.pushMap[sid.argName]; !ok {
-		return
-	}
-	for iPos, sub := range subs {
-		if sub.mid == sid.mid {
-			copy(subs[iPos:], subs[iPos+1:])
-			subs = subs[:len(subs)-1]
-			registry.pushMap[sid.argName] = subs
-		}
-	}
-}
-
-//Execute all subscribed functions to a push message
-func (registry *Registry) Push(arg interface{}) {
-	registry.lock.RLock()
-	defer registry.lock.RUnlock()
-	argType := reflect.TypeOf(arg)
-	typeName := argType.String()
-	isPointer := argType.Kind() == reflect.Ptr
-	if isPointer {
-		typeName = argType.Elem().String()
-	}
-	if subs, ok := registry.pushMap[typeName]; ok {
-		argVal := reflect.ValueOf(arg)
-		for _, sub := range subs {
-			var args []reflect.Value
-			switch {
-			case !isPointer:
-				//Same received and expeted types
-				args = []reflect.Value{argVal}
-			case isPointer:
-				//Received is pointer and expected is value
-				args = []reflect.Value{argVal.Elem()}
-			}
-			//Execute the push in a goroutine
-			go func(sub *pushSubscriber, args []reflect.Value) {
-				sub.method.Call(args)
-			}(sub, args)
-		}
-	}
-
 }

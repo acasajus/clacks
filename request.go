@@ -9,7 +9,6 @@ const (
 )
 
 type Request struct {
-	Type   uint8
 	Method string
 	Seq    uint64
 	next   *Request
