@@ -3,8 +3,6 @@ package clacks
 import (
 	"errors"
 
-	"code.google.com/p/go.net/context"
-
 	"reflect"
 	"strconv"
 	"sync"
@@ -63,19 +61,19 @@ func (registry *Registry) RegisterType(val interface{}) {
 	new(gobCodec).Register(val)
 }
 
-var contextType = reflect.TypeOf(context.Background())
+var contextType = reflect.TypeOf(NewContext())
 
 func (registry *Registry) searchMethodArguments(methodType reflect.Type) ([]methodArgument, uint, error) {
 	exported := make([]methodArgument, 0)
 	var numPointers uint
 	//First In is the interfaced stuct itself
-	//Second must be a context.Context argument
+	//Second must be a Context argument
 	if methodType.NumIn() < 2 {
-		return exported, 0, errors.New("At leaset a context.Context argument is required")
+		return exported, 0, errors.New("At leaset a *Context argument is required")
 	}
 	argType := methodType.In(1)
 	if !contextType.AssignableTo(argType) {
-		return exported, 0, errors.New("First argument must be of type context.Context")
+		return exported, 0, errors.New("First argument must be of type *Context")
 	}
 	//Check the rest of args
 	for i := 2; i < methodType.NumIn(); i++ {
@@ -138,7 +136,7 @@ func (registry *Registry) exportedMethods(typ reflect.Type) (map[string]*methodD
 	return methods, nil
 }
 
-func (svc *serviceData) ExecuteMethod(mData *methodData, ctx context.Context, args []reflect.Value, cb func([]reflect.Value, string)) {
+func (svc *serviceData) ExecuteMethod(mData *methodData, ctx *Context, args []reflect.Value, cb func([]reflect.Value, string)) {
 	//func (s *service) call(server *Server, sending *sync.Mutex, mtype *methodType, req *Request, argv, replyv reflect.Value, codec ServerCodec) {
 	mData.Lock()
 	mData.numCalls++

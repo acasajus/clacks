@@ -8,8 +8,6 @@ import (
 	"reflect"
 	"testing"
 	"time"
-
-	"code.google.com/p/go.net/context"
 )
 
 //Test helpers
@@ -29,12 +27,12 @@ type Reply struct {
 
 type DummyService struct{}
 
-func (ds *DummyService) Sum(ctx context.Context, a Args, r *Reply) error {
+func (ds *DummyService) Sum(ctx *Context, a Args, r *Reply) error {
 	r.Num = a.A + a.B
 	return nil
 }
 
-func (ds *DummyService) Error(ctx context.Context, a Args, r *Reply) error {
+func (ds *DummyService) Error(ctx *Context, a Args, r *Reply) error {
 	return errors.New("Test Error")
 }
 
@@ -196,7 +194,7 @@ func TestProcessOne(t *testing.T) {
 	if err := codec.WriteRequest(req, args); err != nil {
 		t.Error(err)
 	}
-	alive := server.processOne(context.Background(), codec)
+	alive := server.processOne(NewContext(), codec)
 	if !alive {
 		t.Error("OOps.. it's not alive..")
 	}

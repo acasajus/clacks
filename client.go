@@ -24,6 +24,7 @@ var ErrShutdown = errors.New("connection is shut down")
 
 type Client struct {
 	codec Codec
+	cbmgr *CallbackManager
 
 	sending sync.Mutex
 
@@ -41,6 +42,8 @@ type Call struct {
 	Error  error         // After completion, the error status.
 	Done   chan *Call    // Strobes when call is complete.
 }
+
+type disconnectType *Client
 
 func (call *Call) done() {
 	select {
@@ -81,7 +84,48 @@ func (client *Client) readResponseBody(call *Call) error {
 	return err
 }
 
-func (client *Client) input() {
+func (client *Client) processRPCResponse(response Response) (err error) {
+	seq := response.Seq
+	client.mutex.Lock()
+	call := client.pending[seq]
+	delete(client.pending, seq)
+	client.mutex.Unlock()
+
+	switch {
+	case call == nil:
+		// We've got no pending call. That usually means that
+		// WriteRequest partially failed, and call was already
+		// removed; response is a server telling us about an
+		// error reading request body
+		if response.Error != "" {
+			err = errors.New(response.Error)
+		}
+	case response.Error != "":
+		// We've got an error response. Give this to the request;
+		// any subsequent requests will get the ReadResponseBody
+		// error if there is one.
+		call.Error = ServerError(response.Error)
+		call.done()
+	default:
+		err = client.readResponseBody(call)
+		if err != nil {
+			call.Error = errors.New("reading body " + err.Error())
+		}
+		call.done()
+	}
+	return
+}
+
+func (client *Client) processPushResponse(response Response) (err error) {
+	var data interface{}
+	err = client.codec.ReadBody(&data)
+	if err != nil {
+		client.cbmgr.SendToAll(data)
+	}
+	return
+}
+
+func (client *Client) processInput() {
 	var err error
 	var response Response
 	for err == nil {
@@ -90,34 +134,13 @@ func (client *Client) input() {
 		if err != nil {
 			break
 		}
-		seq := response.Seq
-		client.mutex.Lock()
-		call := client.pending[seq]
-		delete(client.pending, seq)
-		client.mutex.Unlock()
-
-		switch {
-		case call == nil:
-			// We've got no pending call. That usually means that
-			// WriteRequest partially failed, and call was already
-			// removed; response is a server telling us about an
-			// error reading request body
-			if response.Error != "" {
-				err = errors.New(response.Error)
-			}
-		case response.Error != "":
-			// We've got an error response. Give this to the request;
-			// any subsequent requests will get the ReadResponseBody
-			// error if there is one.
-			call.Error = ServerError(response.Error)
-			call.done()
-		default:
-			err = client.readResponseBody(call)
-			if err != nil {
-				call.Error = errors.New("reading body " + err.Error())
-			}
-			call.done()
+		switch response.Type {
+		case R_RPC:
+			err = client.processRPCResponse(response)
+		case R_PUSH:
+			err = client.processPushResponse(response)
 		}
+
 	}
 	// Terminate pending calls.
 	client.sending.Lock()
@@ -137,6 +160,9 @@ func (client *Client) input() {
 	}
 	client.mutex.Unlock()
 	client.sending.Unlock()
+	var disc disconnectType
+	disc = client
+	client.cbmgr.SendToAll(disc)
 	//if debugLog && err != io.EOF && !closing {
 	//	log.Println("rpc: client protocol error:", err)
 	//}
@@ -153,8 +179,16 @@ func (client *Client) Close() error {
 	return client.codec.Close()
 }
 
-func (client *Client) SubscribeToPush(cb interface{}) {
+func (client *Client) SubscribeToDisconnect(cb func(*Client)) error {
+	_, err := client.cbmgr.Subscribe(func(disc disconnectType) {
+		cb(disc)
+	})
+	return err
+}
 
+func (client *Client) SubscribeToPush(cb interface{}) error {
+	_, err := client.cbmgr.Subscribe(cb)
+	return err
 }
 
 // Go invokes the function asynchronously.  It returns the Call structure representing
@@ -245,8 +279,9 @@ func NewClientWithCodec(codec Codec) *Client {
 	client := &Client{
 		codec:   codec,
 		pending: make(map[uint64]*Call),
+		cbmgr:   new(CallbackManager),
 	}
-	go client.input()
+	go client.processInput()
 	return client
 }
 

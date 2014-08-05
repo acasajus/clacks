@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"code.google.com/p/go.net/context"
 )
 
 const (
@@ -20,14 +18,15 @@ const (
 )
 
 type codecFunc func(io.ReadWriteCloser) Codec
-type contextFunc func(context.Context, net.Conn) context.Context
+type contextFunc func(*Context)
 
 type Server struct {
 	ReCache
-	creationLock sync.Mutex
-	registry     *Registry
-	codecCB      codecFunc
-	contextCB    contextFunc
+	numConn   uint64
+	lock      sync.Mutex
+	registry  *Registry
+	codecCB   codecFunc
+	contextCB contextFunc
 }
 
 /* Generate codec */
@@ -53,10 +52,16 @@ Process
 */
 
 func (server *Server) ProcessConnection(conn net.Conn) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := NewContext()
+	cancel := ctx.GetCancelFunc()
 	defer cancel()
+	server.lock.Lock()
+	ctx.setClientId(server.numConn)
+	server.numConn += 1
+	server.lock.Unlock()
+	ctx.setConn(conn)
 	if server.contextCB != nil {
-		ctx = server.contextCB(ctx, conn)
+		server.contextCB(ctx)
 	}
 	codec := server.codecCB(conn)
 	defer codec.Close()
@@ -64,7 +69,7 @@ func (server *Server) ProcessConnection(conn net.Conn) {
 	}
 }
 
-func (server *Server) processOne(ctx context.Context, codec Codec) bool {
+func (server *Server) processOne(ctx *Context, codec Codec) bool {
 	req, alive, svc, mData, args, err := server.readRequest(codec)
 	if err != nil {
 		if !alive {
@@ -186,11 +191,11 @@ func (server *Server) HandleHTTP() {
 }
 
 func (server *Server) Register(endpoint interface{}) error {
-	server.creationLock.Lock()
+	server.lock.Lock()
 	if server.registry == nil {
 		server.registry = new(Registry)
 	}
-	server.creationLock.Unlock()
+	server.lock.Unlock()
 	return server.registry.Register(endpoint)
 }
 

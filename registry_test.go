@@ -5,8 +5,6 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
-
-	"code.google.com/p/go.net/context"
 )
 
 type privateStuff struct{}
@@ -20,7 +18,7 @@ type TestData struct {
 	A int
 }
 
-func (m *MyService) Func1(ctx context.Context, a int, b string, j *TestData) error {
+func (m *MyService) Func1(ctx *Context, a int, b string, j *TestData) error {
 	j.A = a
 	return nil
 }
@@ -39,13 +37,13 @@ func (m *MyInvalidService2) Func1() int {
 
 type MyInvalidService3 struct{}
 
-func (m *MyInvalidService3) Func1(ctx context.Context, a int, b string) int {
+func (m *MyInvalidService3) Func1(ctx *Context, a int, b string) int {
 	return a
 }
 
 type MyServiceError struct{}
 
-func (m *MyServiceError) FuncError(ctx context.Context) error {
+func (m *MyServiceError) FuncError(ctx *Context) error {
 	return errors.New("TEST")
 }
 
@@ -195,7 +193,7 @@ func TestCall(t *testing.T) {
 	td := new(TestData)
 	svcData, mData := registry.GetServiceMethod("MyService", "Func1")
 	args := []reflect.Value{reflect.ValueOf(1), reflect.ValueOf("a"), reflect.ValueOf(td)}
-	ctx := context.Background()
+	ctx := NewContext()
 	svcData.ExecuteMethod(mData, ctx, args, func(rargs []reflect.Value, errMsg string) {
 		if len(rargs) != 1 {
 			t.Error("Returned args is different than 1 (" + strconv.Itoa(len(rargs)) + ")")
